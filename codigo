@@ -1,0 +1,123 @@
+#include <ArduinoJson.h>
+#include "EspMQTTClient.h"
+#include <Wire.h>
+
+// Pinos do sensor de distância
+#define TRIG_PIN 6
+#define ECHO_PIN 5
+
+// Pinos dos LEDs
+const byte greenLED = 9;
+const byte yellowLED = 11;
+const byte redLED = 13;
+const byte BUZZER_PIN = 10;
+
+// Configurações da conexão MQTT
+EspMQTTClient client(
+    "Nome da Rede",         // Nome da sua rede Wi-Fi
+    "senha",                // Senha da sua rede Wi-Fi
+    "mqtt.tago.io",         // MQTT Broker server ip padrão da Tago
+    "Default",              // Username
+    "1d40f11b-b1b0-4931-8899-7772af9daa63",  // Código do Token
+    "TestClient",           // Client name that uniquely identifies your device
+    1883                    // The MQTT port, default to 1883. This line can be omitted
+);
+
+// Tópicos MQTT
+const char *topicDistancia = "info/distancia";
+const char *topicLED = "info/led";
+
+// Função para calcular a distância
+float measureDistance()
+{
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(5);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+    float duration = pulseIn(ECHO_PIN, HIGH);
+    float distance = duration * 0.0343 / 2;
+
+    if (distance >= 331)
+    {
+        distance = 0;
+    }
+
+    return distance;
+}
+
+// Função para acionar os LEDs com base na distância
+void activateLED(float distance)
+{
+    digitalWrite(greenLED, LOW);
+    digitalWrite(yellowLED, LOW);
+    digitalWrite(redLED, LOW);
+
+    if (distance <= 2)
+    {
+        digitalWrite(redLED, HIGH);
+        digitalWrite(BUZZER_PIN, HIGH);
+        // Publica no tópico LED
+        client.publish(topicLED, "vermelho");
+    }
+    else if (distance <= 5)
+    {
+        digitalWrite(yellowLED, HIGH);
+        digitalWrite(BUZZER_PIN, LOW);
+        // Publica no tópico LED
+        client.publish(topicLED, "amarelo");
+    }
+    else
+    {
+        digitalWrite(greenLED, HIGH);
+        digitalWrite(BUZZER_PIN, LOW);
+        // Publica no tópico LED
+        client.publish(topicLED, "verde");
+    }
+}
+
+// Configuração inicial
+void setup()
+{
+    Serial.begin(115200);
+
+    // Configuração dos pinos
+    pinMode(BUZZER_PIN, OUTPUT);
+    pinMode(greenLED, OUTPUT);
+    pinMode(yellowLED, OUTPUT);
+    pinMode(redLED, OUTPUT);
+
+    // Configuração do sensor de distância
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+
+    // Conectar ao Wi-Fi
+    while (!client.connect()) {
+        delay(500);
+    }
+
+    // Adicionar tópicos MQTT
+    client.addSubscription(topicDistancia);
+    client.addSubscription(topicLED);
+}
+
+// Loop principal
+void loop()
+{
+    // Medida de distância
+    float distancia = measureDistance();
+
+    // Ativação dos LEDs com base na distância
+    activateLED(distancia);
+
+    // Publicação da distância via MQTT
+    char msg[10];
+    dtostrf(distancia, 4, 2, msg);
+    client.publish(topicDistancia, msg);
+
+    // Aguarda e mantém a conexão MQTT
+    client.loop();
+
+    // Delay
+    delay(1000);
+}
